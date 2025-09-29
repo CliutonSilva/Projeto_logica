@@ -1,350 +1,331 @@
-import itertools
-from typing import List, Dict, Tuple, Set
 import re
+from typing import List, Dict, Tuple, Set
 
-class LogicalEquivalenceChecker:
+class tradutor_LN:
     
     def __init__(self):
-      self.precedence = {
-          '~': 4,
-          '&': 3,
-          '|': 2,
-          '>': 1,
-          '=': 1
+        self.symbols = ['M', 'N', 'O', 'P', 'Q', 'R', 'S', 'U', 'V', 'X', 'Y', 'Z']
+        self.symbol_index = 0
+        self.atomic_propositions = {}
+        self.reverse_mapping = {}
+        
+        self.connective_patterns = {
+            'negation': [
+                r'\bnão\b', r'\bnao\b', r'\bnem\b', r'\bnunca\b', 
+                r'\bfalso que\b', r'\bé falso que\b', r'\bnão é verdade que\b'
+            ],
+            'conjunction': [
+                r'\be\b', r'\bmas\b', r'\bporém\b', r'\btodavia\b', 
+                r'\bentretanto\b', r'\bcontudo\b', r'\bem conjunto com\b',
+                r'\balém disso\b', r'\btambém\b', r'\bao mesmo tempo\b'
+            ],
+            'disjunction': [
+                r'\bou\b', r'\bou então\b', r'\balternativamente\b',
+                r'\bcaso contrário\b', r'\bou bem\b'
+            ],
+            'implication': [
+                r'\bse\b.*\bentão\b', r'\bse\b.*\b,\b', r'\bcaso\b.*\bentão\b',
+                r'\bquando\b.*\bentão\b', r'\bimplica que\b', r'\bimplica\b',
+                r'\blogo\b', r'\bportanto\b', r'\bassim\b', r'\bconcluímos que\b'
+            ],
+            'biconditional': [
+                r'\bse e somente se\b', r'\bse e só se\b', r'\bequivale a\b',
+                r'\bé equivalente a\b', r'\bse e apenas se\b'
+            ]
         }
         
-      self.equivalence_rules = {
-          "Lei de De Morgan 1": ("~(P & Q)", "(~P | ~Q)"),
-          "Lei de De Morgan 2": ("~(P | Q)", "(~P & ~Q)"),
-          "Lei da Implicação": ("(P > Q)", "(~P | Q)"),
-          "Negação da Implicação": ("~(P > Q)", "(P & ~Q)"),
-          "Bicondicional 1": ("(P = Q)", "((P > Q) & (Q > P))"),
-          "Bicondicional 2": ("(P = Q)", "((P & Q) | (~P & ~Q))"),
-          "Dupla Negação": ("~~P", "P"),
-          "Lei de Idempotência AND": ("(P & P)", "P"),
-          "Lei de Idempotência OR": ("(P | P)", "P"),
-          "Lei Comutativa AND": ("(P & Q)", "(Q & P)"),
-          "Lei Comutativa OR": ("(P | Q)", "(Q | P)"),
-          "Lei Distributiva 1": ("(P & (Q | R))", "((P & Q) | (P & R))"),
-          "Lei Distributiva 2": ("(P | (Q & R))", "((P | Q) & (P | R))"),
-          "Lei da Absorção 1": ("(P & (P | Q))", "P"),
-          "Lei da Absorção 2": ("(P | (P & Q))", "P")
-        }
+        self.proposition_markers = [
+            r'\bé verdade que\b', r'\bé o caso que\b', r'\bocorre que\b',
+            r'\bacontece que\b', r'\bsabemos que\b', r'\bé fato que\b'
+        ]
     
-    def print_equivalence_table(self):
-        print("\n" + "="*60)
-        print(" TABELA DE EQUIVALÊNCIAS LÓGICAS FUNDAMENTAIS")
-        print("="*60)
-        
-        for rule_name, (left, right) in self.equivalence_rules.items():
-            print(f"{rule_name:25}: {left:15} ≡ {right}")
-        
-        print("="*60 + "\n")
+    def clean_text(self, text: str) -> str:
+        text = text.lower().strip()
+        text = re.sub(r'[.,;:!?]+', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text
     
-    def tokenize(self, expression: str) -> List[str]:
-        expression = re.sub(r'\s+', '', expression)
-        tokens = []
+    def identify_connectives(self, sentence: str) -> List[Tuple[str, str, int]]:
+        connectives_found = []
+        
+        for conn_type, patterns in self.connective_patterns.items():
+            for pattern in patterns:
+                matches = re.finditer(pattern, sentence, re.IGNORECASE)
+                for match in matches:
+                    connectives_found.append((conn_type, match.group(), match.start()))
+        
+        connectives_found.sort(key=lambda x: x[2])
+        return connectives_found
+    
+    def extract_atomic_propositions(self, sentence: str) -> List[str]:
+        cleaned = self.clean_text(sentence)
+        
+        for conn_type, patterns in self.connective_patterns.items():
+            for pattern in patterns:
+                cleaned = re.sub(pattern, ' CONECTIVO ', cleaned, flags=re.IGNORECASE)
+        
+        for marker in self.proposition_markers:
+            cleaned = re.sub(marker, '', cleaned, flags=re.IGNORECASE)
+        
+        cleaned = re.sub(r'\bCONECTIVO\b', '|', cleaned)
+        
+        parts = [part.strip() for part in cleaned.split('|') if part.strip()]
+        
+        atomic_props = []
+        for part in parts:
+            if len(part) > 3 and not part.isspace():
+                atomic_props.append(part.strip())
+        
+        return atomic_props
+    
+    def assign_symbols(self, propositions: List[str]) -> Dict[str, str]:
+        mapping = {}
+        
+        for prop in propositions:
+            if prop not in self.atomic_propositions:
+                if self.symbol_index < len(self.symbols):
+                    symbol = self.symbols[self.symbol_index]
+                    self.atomic_propositions[prop] = symbol
+                    self.reverse_mapping[symbol] = prop
+                    self.symbol_index += 1
+                    mapping[prop] = symbol
+                else:
+                    mapping[prop] = f"P{self.symbol_index}"
+                    self.symbol_index += 1
+            else:
+                mapping[prop] = self.atomic_propositions[prop]
+        
+        return mapping
+    
+    def translate_sentence(self, sentence: str) -> Tuple[str, Dict[str, str]]:
+        original_sentence = sentence
+        cleaned = self.clean_text(sentence)
+        
+        connectives = self.identify_connectives(cleaned)
+        atomic_props = self.extract_atomic_propositions(sentence)
+        symbol_mapping = self.assign_symbols(atomic_props)
+        
+        if not connectives and len(atomic_props) == 1:
+            return symbol_mapping[atomic_props[0]], symbol_mapping
+        
+        formula = cleaned
+        
+        for prop, symbol in symbol_mapping.items():
+            formula = formula.replace(prop.lower(), f" {symbol} ")
+        
+        for conn_type, patterns in self.connective_patterns.items():
+            for pattern in patterns:
+                if conn_type == 'negation':
+                    formula = re.sub(pattern, ' ~ ', formula, flags=re.IGNORECASE)
+                elif conn_type == 'conjunction':
+                    formula = re.sub(pattern, ' & ', formula, flags=re.IGNORECASE)
+                elif conn_type == 'disjunction':
+                    formula = re.sub(pattern, ' | ', formula, flags=re.IGNORECASE)
+                elif conn_type == 'implication':
+                    formula = re.sub(pattern, ' > ', formula, flags=re.IGNORECASE)
+                elif conn_type == 'biconditional':
+                    formula = re.sub(pattern, ' = ', formula, flags=re.IGNORECASE)
+        
+        formula = re.sub(r'\s+', ' ', formula).strip()
+        
+        tokens = formula.split()
+        logical_formula = ""
+        
         i = 0
-        
-        while i < len(expression):
-            char = expression[i]
+        while i < len(tokens):
+            token = tokens[i]
             
-            if char in '()&|>=~':
-                tokens.append(char)
-            elif char.isalpha():
-                var = ''
-                while i < len(expression) and (expression[i].isalnum() or expression[i] == '_'):
-                    var += expression[i]
+            if token in self.symbols or token in ['~', '&', '|', '>', '=']:
+                if token == '~' and i + 1 < len(tokens):
+                    logical_formula += f"~{tokens[i+1]} "
                     i += 1
-                tokens.append(var)
-                i -= 1
-            
+                else:
+                    logical_formula += f"{token} "
             i += 1
         
-        return tokens
+        logical_formula = logical_formula.strip()
+        
+        if ' ' in logical_formula and not any(op in logical_formula for op in ['&', '|', '>', '=']):
+            parts = logical_formula.split()
+            if len(parts) == 2:
+                logical_formula = f"({parts[0]} & {parts[1]})"
+        
+        return logical_formula, symbol_mapping
     
-    def is_operator(self, token: str) -> bool:
-        return token in self.precedence
+    def translate_argument(self, premises: List[str], conclusion: str) -> Dict:
+        self.symbol_index = 0
+        self.atomic_propositions = {}
+        self.reverse_mapping = {}
+        
+        translated_premises = []
+        all_mappings = {}
+        
+        print(f"🔄 TRADUZINDO ARGUMENTO")
+        print(f"{'='*60}")
+        
+        print(f"\n📋 PREMISSAS:")
+        for i, premise in enumerate(premises, 1):
+            print(f"P{i}: {premise}")
+            formula, mapping = self.translate_sentence(premise)
+            translated_premises.append(formula)
+            all_mappings.update(mapping)
+            print(f"     → {formula}")
+        
+        print(f"\n🎯 CONCLUSÃO:")
+        print(f"C: {conclusion}")
+        conclusion_formula, conclusion_mapping = self.translate_sentence(conclusion)
+        all_mappings.update(conclusion_mapping)
+        print(f"   → {conclusion_formula}")
+        
+        print(f"\n🔤 MAPEAMENTO DE SÍMBOLOS:")
+        print(f"{'='*40}")
+        for symbol, prop in self.reverse_mapping.items():
+            print(f"{symbol}: {prop}")
+        
+        print(f"\n⚡ FÓRMULA LÓGICA COMPLETA:")
+        print(f"{'='*40}")
+        premises_str = " & ".join([f"({p})" for p in translated_premises])
+        full_formula = f"({premises_str}) > {conclusion_formula}"
+        print(f"({premises_str})")
+        print(f"∴ {conclusion_formula}")
+        print(f"\nForma de inferência: {full_formula}")
+        
+        return {
+            'premises': translated_premises,
+            'conclusion': conclusion_formula,
+            'mapping': all_mappings,
+            'full_formula': full_formula,
+            'reverse_mapping': self.reverse_mapping
+        }
     
-    def is_variable(self, token: str) -> bool:
-        return token.isalnum() and not self.is_operator(token)
-    
-    def infix_to_postfix(self, tokens: List[str]) -> List[str]:
-        output = []
-        operator_stack = []
-        
-        for token in tokens:
-            if self.is_variable(token):
-                output.append(token)
-            elif token == '(':
-                operator_stack.append(token)
-            elif token == ')':
-                while operator_stack and operator_stack[-1] != '(':
-                    output.append(operator_stack.pop())
-                if operator_stack:
-                    operator_stack.pop()
-            elif self.is_operator(token):
-                while (operator_stack and 
-                       operator_stack[-1] != '(' and
-                       self.is_operator(operator_stack[-1]) and
-                       self.precedence[operator_stack[-1]] >= self.precedence[token]):
-                    output.append(operator_stack.pop())
-                operator_stack.append(token)
-        
-        while operator_stack:
-            output.append(operator_stack.pop())
-        
-        return output
-    
-    def extract_variables(self, tokens: List[str]) -> Set[str]:
-        return {token for token in tokens if self.is_variable(token)}
-    
-    def evaluate_postfix(self, postfix: List[str], assignment: Dict[str, bool]) -> bool:
-        stack = []
-        
-        for token in postfix:
-            if self.is_variable(token):
-                stack.append(assignment.get(token, False))
-            elif token == '~':
-                if stack:
-                    operand = stack.pop()
-                    stack.append(not operand)
-            elif token == '&':
-                if len(stack) >= 2:
-                    right = stack.pop()
-                    left = stack.pop()
-                    stack.append(left and right)
-            elif token == '|':
-                if len(stack) >= 2:
-                    right = stack.pop()
-                    left = stack.pop()
-                    stack.append(left or right)
-            elif token == '>':
-                if len(stack) >= 2:
-                    right = stack.pop()
-                    left = stack.pop()
-                    stack.append(not left or right)
-            elif token == '=':
-                if len(stack) >= 2:
-                    right = stack.pop()
-                    left = stack.pop()
-                    stack.append(left == right)
-        
-        return stack[0] if stack else False
-    
-    def generate_truth_table(self, expr1: str, expr2: str) -> Tuple[bool, List[Dict]]:
-        tokens1 = self.tokenize(expr1)
-        tokens2 = self.tokenize(expr2)
-        
-        postfix1 = self.infix_to_postfix(tokens1)
-        postfix2 = self.infix_to_postfix(tokens2)
-        
-        all_vars = self.extract_variables(tokens1 + tokens2)
-        var_list = sorted(list(all_vars))
-        
-        truth_table = []
-        is_equivalent = True
-        
-        for values in itertools.product([False, True], repeat=len(var_list)):
-            assignment = dict(zip(var_list, values))
-            
-            result1 = self.evaluate_postfix(postfix1, assignment)
-            result2 = self.evaluate_postfix(postfix2, assignment)
-            
-            row = {
-                'assignment': assignment.copy(),
-                'expr1_result': result1,
-                'expr2_result': result2,
-                'equivalent': result1 == result2
-            }
-            
-            truth_table.append(row)
-            
-            if result1 != result2:
-                is_equivalent = False
-        
-        return is_equivalent, truth_table, var_list
-    
-    def print_truth_table(self, expr1: str, expr2: str, truth_table: List[Dict], var_list: List[str]):
-        print(f"\n{'='*70}")
-        print(f" TABELA VERDADE - VERIFICAÇÃO DE EQUIVALÊNCIA")
-        print(f"{'='*70}")
-        print(f"Expressão 1: {expr1}")
-        print(f"Expressão 2: {expr2}")
-        print(f"{'='*70}")
-        
-        header = "| "
-        for var in var_list:
-            header += f"{var:^6} | "
-        header += f"{'Expr1':^6} | {'Expr2':^6} | {'Equiv':^6} |"
-        
-        print(header)
-        print("|" + "-"*8 * (len(var_list) + 3) + "|")
-        
-        for i, row in enumerate(truth_table):
-            line = f"| "
-            
-            for var in var_list:
-                value = "T" if row['assignment'][var] else "F"
-                line += f"{value:^6} | "
-            
-            result1 = "T" if row['expr1_result'] else "F"
-            result2 = "T" if row['expr2_result'] else "F"
-            equiv = "✓" if row['equivalent'] else "✗"
-            
-            line += f"{result1:^6} | {result2:^6} | {equiv:^6} |"
-            print(line)
-        
-        print(f"{'='*70}\n")
-    
-    def check_known_equivalences(self, expr1: str, expr2: str) -> List[str]:
-        matching_rules = []
-        
-        expr1_norm = expr1.replace(" ", "")
-        expr2_norm = expr2.replace(" ", "")
-        
-        for rule_name, (left, right) in self.equivalence_rules.items():
-            left_norm = left.replace(" ", "")
-            right_norm = right.replace(" ", "")
-            
-            if ((expr1_norm == left_norm and expr2_norm == right_norm) or
-                (expr1_norm == right_norm and expr2_norm == left_norm)):
-                matching_rules.append(rule_name)
-        
-        return matching_rules
-    
-    def verify_logical_equivalence(self, expr1: str, expr2: str) -> Dict:
-        print(f"\n🔍 VERIFICANDO EQUIVALÊNCIA LÓGICA")
+    def interactive_translation(self):
+        print(f"\n🎮 MODO INTERATIVO DE TRADUÇÃO")
         print(f"{'='*50}")
-        print(f"Expressão 1: {expr1}")
-        print(f"Expressão 2: {expr2}")
+        print("Digite um argumento em linguagem natural para traduzir.")
+        print("Formato: Premissa 1, Premissa 2, ..., Conclusão")
+        print("Para sair, digite 'quit'")
+        print(f"{'='*50}")
         
-        try:
-            known_rules = self.check_known_equivalences(expr1, expr2)
-            if known_rules:
-                print(f"\n📚 EQUIVALÊNCIA CONHECIDA IDENTIFICADA:")
-                for rule in known_rules:
-                    print(f"   → {rule}")
-            
-            is_equivalent, truth_table, var_list = self.generate_truth_table(expr1, expr2)
-            
-            self.print_truth_table(expr1, expr2, truth_table, var_list)
-            
-            if is_equivalent:
-                print(f"✅ RESULTADO: AS EXPRESSÕES SÃO LOGICAMENTE EQUIVALENTES")
-                print(f"   Todas as {len(truth_table)} linhas da tabela verdade coincidem.")
-            else:
-                print(f"❌ RESULTADO: AS EXPRESSÕES NÃO SÃO LOGICAMENTE EQUIVALENTES")
+        while True:
+            try:
+                print(f"\n📝 Digite o argumento:")
+                print("(Separe premissas por ponto-e-vírgula ';' e termine com a conclusão)")
                 
-                counterexamples = [row for row in truth_table if not row['equivalent']]
-                print(f"   Encontrados {len(counterexamples)} contraexemplo(s):")
+                input_text = input("➤ ").strip()
                 
-                for i, row in enumerate(counterexamples[:3], 1):
-                    assignment_str = ", ".join([f"{var}={row['assignment'][var]}" 
-                                              for var in var_list])
-                    print(f"   {i}. {assignment_str} → Expr1: {row['expr1_result']}, Expr2: {row['expr2_result']}")
-            
-            return {
-                'equivalent': is_equivalent,
-                'truth_table': truth_table,
-                'variables': var_list,
-                'known_rules': known_rules
-            }
-            
-        except Exception as e:
-            print(f"❌ ERRO na análise: {str(e)}")
-            return {'error': str(e)}
+                if input_text.lower() in ['quit', 'exit', 'q']:
+                    break
+                
+                if not input_text:
+                    print("⚠️  Por favor, digite um argumento válido.")
+                    continue
+                
+                if ';' in input_text:
+                    parts = input_text.split(';')
+                    premises = [p.strip() for p in parts[:-1]]
+                    conclusion = parts[-1].strip()
+                else:
+                    print("📌 Formato sugerido: 'premissa1; premissa2; conclusão'")
+                    print("Assumindo entrada única como premissa simples...")
+                    premises = [input_text]
+                    conclusion = input("Digite a conclusão: ").strip()
+                
+                if not conclusion:
+                    conclusion = "Verdadeiro"
+                
+                result = self.translate_argument(premises, conclusion)
+                
+                print(f"\n{'='*60}")
+                
+            except KeyboardInterrupt:
+                print(f"\n\n👋 Programa interrompido!")
+                break
+            except Exception as e:
+                print(f"❌ Erro na tradução: {e}")
 
-def run_test_examples():
-    checker = LogicalEquivalenceChecker()
+def run_examples():
+    translator = tradutor_LN()
     
-    print("🧪 EXECUTANDO EXEMPLOS DE TESTE")
+    print("🧪 EXEMPLOS DE TRADUÇÃO")
     print("="*60)
     
-    test_cases = [
-        ("~(P & Q)", "(~P | ~Q)", "Lei de De Morgan - Negação da Conjunção"),
-        ("(P > Q)", "(~P | Q)", "Lei da Implicação"),
-        ("(P = Q)", "((P & Q) | (~P & ~Q))", "Definição do Bicondicional"),
-        ("~~P", "P", "Lei da Dupla Negação"),
-        ("(P & Q)", "(P | Q)", "Exemplo de NÃO equivalência")
+    examples = [
+        {
+            'name': 'Modus Ponens Simples',
+            'premises': [
+                'Se está chovendo então a rua está molhada',
+                'Está chovendo'
+            ],
+            'conclusion': 'A rua está molhada'
+        },
+        {
+            'name': 'Silogismo Disjuntivo',
+            'premises': [
+                'Ou João foi ao cinema ou João foi ao teatro',
+                'João não foi ao cinema'
+            ],
+            'conclusion': 'João foi ao teatro'
+        },
+        {
+            'name': 'Modus Tollens',
+            'premises': [
+                'Se Maria estudou então Maria passou na prova',
+                'Maria não passou na prova'
+            ],
+            'conclusion': 'Maria não estudou'
+        },
+        {
+            'name': 'Conjunção e Implicação',
+            'premises': [
+                'Pedro é inteligente e Pedro é estudioso',
+                'Se Pedro é estudioso então Pedro terá sucesso'
+            ],
+            'conclusion': 'Pedro terá sucesso'
+        },
+        {
+            'name': 'Bicondicional',
+            'premises': [
+                'Ana vai à festa se e somente se Carlos vai à festa',
+                'Carlos vai à festa'
+            ],
+            'conclusion': 'Ana vai à festa'
+        }
     ]
     
-    results = []
-    
-    for i, (expr1, expr2, description) in enumerate(test_cases, 1):
-        print(f"\n{'='*60}")
-        print(f"📋 TESTE {i}: {description}")
-        print(f"{'='*60}")
+    for i, example in enumerate(examples, 1):
+        print(f"\n{'='*70}")
+        print(f"📚 EXEMPLO {i}: {example['name']}")
+        print(f"{'='*70}")
         
-        result = checker.verify_logical_equivalence(expr1, expr2)
-        results.append((description, result.get('equivalent', False)))
+        result = translator.translate_argument(
+            example['premises'], 
+            example['conclusion']
+        )
         
-        print(f"{'='*60}")
-    
-    print(f"\n📊 RESUMO DOS TESTES:")
-    print(f"{'='*40}")
-    for i, (desc, equiv) in enumerate(results, 1):
-        status = "✅ EQUIVALENTES" if equiv else "❌ NÃO EQUIVALENTES"
-        print(f"Teste {i}: {status}")
-        print(f"         {desc}")
-    print(f"{'='*40}")
-    
-    return results
-
-def interactive_mode():
-    checker = LogicalEquivalenceChecker()
-    
-    print(f"\n🎮 MODO INTERATIVO")
-    print(f"{'='*50}")
-    print("Digite suas próprias expressões para verificar equivalência.")
-    print("Para sair, digite 'quit' em qualquer expressão.")
-    print(f"{'='*50}")
-    
-    while True:
-        try:
-            print(f"\n📝 Digite as expressões:")
-            expr1 = input("Expressão 1: ").strip()
-            
-            if expr1.lower() in ['quit', 'exit', 'q']:
-                break
-                
-            expr2 = input("Expressão 2: ").strip()
-            
-            if expr2.lower() in ['quit', 'exit', 'q']:
-                break
-            
-            if not expr1 or not expr2:
-                print("⚠️  Por favor, digite expressões válidas.")
-                continue
-            
-            result = checker.verify_logical_equivalence(expr1, expr2)
-            
-            print(f"\n{'='*60}")
-            
-        except KeyboardInterrupt:
-            print(f"\n\n👋 Programa interrompido pelo usuário!")
-            break
-        except Exception as e:
-            print(f"❌ Erro: {e}")
+        print(f"\n✅ Tradução concluída!")
+        print(f"{'='*70}")
 
 def main():
-    checker = LogicalEquivalenceChecker()
+    print("🌐 TRADUTOR: LINGUAGEM NATURAL → LÓGICA PROPOSICIONAL")
+    print("="*65)
+    print("Converte argumentos em português para fórmulas lógicas")
+    print("Símbolos disponíveis: M, N, O, P, Q, R, S, U, V, X, Y, Z")
+    print("="*65)
     
-    print("🧮 VERIFICADOR DE EQUIVALÊNCIA LÓGICA")
-    print("="*50)
-    print("Programa para verificar equivalência entre sentenças da lógica proposicional")
-    print("Utiliza análise por tabela verdade e conhecimento de equivalências fundamentais")
-    print("="*50)
+    print("\n📖 CONECTIVOS RECONHECIDOS:")
+    print("• Negação: não, nem, nunca, falso que")
+    print("• Conjunção: e, mas, porém, também, ao mesmo tempo")  
+    print("• Disjunção: ou, ou então, alternativamente")
+    print("• Implicação: se...então, caso...então, implica, logo, portanto")
+    print("• Bicondicional: se e somente se, se e só se, equivale a")
     
-    checker.print_equivalence_table()
+    run_examples()
     
-    print("🎯 RESOLVENDO A QUESTÃO 1 COM 5 EXEMPLOS:")
-    test_results = run_test_examples()
+    translator = tradutor_LN()
+    translator.interactive_translation()
     
-    interactive_mode()
-    
-    print(f"\n✨ PROGRAMA FINALIZADO!")
-    print("Obrigado por usar o Verificador de Equivalência Lógica!")
+    print(f"\n✨ TRADUTOR FINALIZADO!")
+    print("Obrigado por usar o Tradutor de Linguagem Natural!")
 
 if __name__ == "__main__":
     main()
